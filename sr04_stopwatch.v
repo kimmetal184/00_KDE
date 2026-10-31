@@ -21,7 +21,13 @@ module sr04_stopwatch (
     output [5:0] uart_sec,
     output [5:0] uart_min,
     output [4:0] uart_hour,
-    output [8:0] uart_distance
+    output [8:0] uart_distance,
+    // Frozen result: updated together with result_valid, retained until next result.
+    output reg [6:0] result_msec,
+    output reg [5:0] result_sec,
+    output reg [5:0] result_min,
+    output reg [4:0] result_hour,
+    output reg [8:0] result_distance
 );
     reg fpga_run, fpga_mode;
     reg uart_run;
@@ -46,18 +52,30 @@ module sr04_stopwatch (
         end
     end
 
-    // UART stop has priority over start. Repeated start resets the time.
+    // Snapshot the visible time at the clock accepting stop.
+    // Start+stop gives stop priority; a repeated idle stop creates no result.
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             uart_run <= 0;
             result_valid <= 0;
+            result_msec <= 0;
+            result_sec <= 0;
+            result_min <= 0;
+            result_hour <= 0;
+            result_distance <= 0;
         end else begin
-            result_valid <= 0;
-            if (uart_stop) begin
+            result_valid <= uart_stop && uart_run;
+            if (uart_stop)
                 uart_run <= 0;
-                if (uart_run) result_valid <= 1;
-            end else if (uart_start) begin
+            else if (uart_start)
                 uart_run <= 1;
+
+            if (uart_stop && uart_run) begin
+                result_msec <= uart_msec;
+                result_sec <= uart_sec;
+                result_min <= uart_min;
+                result_hour <= uart_hour;
+                result_distance <= distance_valid ? measured_distance : distance_hold;
             end
         end
     end

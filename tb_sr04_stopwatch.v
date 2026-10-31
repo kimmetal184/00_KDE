@@ -12,6 +12,10 @@ module tb_sr04_stopwatch;
     wire [5:0] uart_sec, uart_min;
     wire [4:0] uart_hour;
     wire [8:0] uart_distance;
+    wire [6:0] result_msec;
+    wire [5:0] result_sec, result_min;
+    wire [4:0] result_hour;
+    wire [8:0] result_distance;
     integer events=0;
     sr04_stopwatch dut (
         .clk(clk), .rst(rst), .btn_run_stop(btn_run_stop),
@@ -21,7 +25,10 @@ module tb_sr04_stopwatch;
         .trig(trig), .data(data), .result_valid(result_valid),
         .uart_msec(uart_msec), .uart_sec(uart_sec),
         .uart_min(uart_min), .uart_hour(uart_hour),
-        .uart_distance(uart_distance)
+        .uart_distance(uart_distance),
+        .result_msec(result_msec), .result_sec(result_sec),
+        .result_min(result_min), .result_hour(result_hour),
+        .result_distance(result_distance)
     );
     // Accelerate only the stopwatch dividers: 100 clocks per centisecond.
     defparam dut.U_FPGA_STOPWATCH.U_TICK_GEN_100HZ.F_COUNT = 100;
@@ -39,8 +46,17 @@ module tb_sr04_stopwatch;
         repeat(350) @(negedge clk);
         if (dut.fpga_msec !== 7'd3 || uart_msec !== 7'd7)
             $fatal(1,"Independent simultaneous counting failed");
+        // Emulate a sensor completion coincident with stop, avoiding a long
+        // sensor timing test here. The real sensor is still instantiated.
+        force dut.distance_valid = 1'b1;
+        force dut.measured_distance = 9'd123;
         uart_stop=1;
         @(negedge clk); uart_stop=0;
+        release dut.distance_valid;
+        release dut.measured_distance;
+        if ({result_hour,result_min,result_sec,result_msec} !== {5'd0,6'd0,6'd0,7'd7}
+            || result_distance !== 9'd123 || result_valid !== 1'b1)
+            $fatal(1,"Stop snapshot or simultaneous distance completion failed");
         repeat(350) @(negedge clk);
         if (uart_msec !== 7'd7 || dut.fpga_msec !== 7'd7 || events != 1)
             $fatal(1,"UART stop or completion pulse failed");
@@ -58,7 +74,24 @@ module tb_sr04_stopwatch;
         if (uart_msec !== 7'd0) $fatal(1,"UART restart did not clear");
         repeat(150) @(negedge clk);
         if (uart_msec !== 7'd1) $fatal(1,"UART restart did not run");
+        if (result_msec !== 7'd7 || result_distance !== 9'd123)
+            $fatal(1,"Restart changed previous result");
+        // Idle stop must not replace the last result or emit another event.
+        uart_stop=1;
+        @(negedge clk); uart_stop=0;
+        @(negedge clk);
+        if (result_msec !== 7'd1 || result_distance !== 9'd0)
+            $fatal(1,"Next stop did not replace snapshot");
+        uart_stop=1;
+        @(negedge clk); uart_stop=0;
+        if (result_valid !== 1'b0 || result_msec !== 7'd1)
+            $fatal(1,"Idle stop changed result");
+        rst=1;
+        @(negedge clk);
+        if ({result_hour,result_min,result_sec,result_msec,result_distance} !== 0)
+            $fatal(1,"Reset did not clear result");
         $display("ALL CONTROL TESTS PASSED");
+        $display("ALL SNAPSHOT TESTS PASSED");
         $finish;
     end
     initial begin

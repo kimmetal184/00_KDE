@@ -24,9 +24,20 @@ Validated with Icarus Verilog 12.0:
   FPGA lap display; FPGA clear isolation; UART restart.
 Not validated here: Vivado synthesis, timing, hardware sensor behavior.
 Not implemented: UART ASCII message creation and req/accept handshake,
-immutable result snapshot, sensor-only FND measurement when UART is idle.
+sensor-only FND measurement when UART is idle.
 Existing sensor behavior retained: TRIG minimum 10us is not yet guaranteed;
 in-flight measurement across rapid UART restart needs session handling.
 stopwatch.v includes a legacy standalone stopwatch top referencing external
 btn_debounce/control_unit/fnd_controller modules. These are not needed when
 sr04_stopwatch is selected as top; required if using the legacy top itself.
+
+Snapshot update:
+  result_msec/sec/min/hour/distance capture the visible values at the clock
+  accepting uart_stop while running. result_valid pulses with the saved data.
+  A distance completion present at that same edge is included.
+  Restart/FPGA buttons do not clear the snapshot; next accepted stop replaces it.
+  Reset clears the snapshot. Idle stop emits no result.
+  This is one result slot, not a queue: UART pending-message ownership and
+  overflow policy will be added with req/accept handling.
+  Snapshot tests: simultaneous sensor completion + stop, retention on restart,
+  next-stop replacement, idle-stop rejection, reset. All passed in Icarus.
