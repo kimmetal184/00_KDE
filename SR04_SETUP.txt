@@ -1,3 +1,6 @@
+현재 버전: v0.3.0 — UART ASCII 메시지 생성
+변경 이력은 CHANGELOG.md를 확인하세요.
+
 SR04_STOPWATCH 사용 안내
 
 1. Vivado 파일 등록
@@ -6,6 +9,7 @@ Design Sources에 다음 파일을 추가합니다.
   - sr04_stopwatch.v: FPGA용·UART용 스톱워치를 분리한 상위 모듈
   - stopwatch.v: 기존 시간 카운터와 Lap 모듈을 그대로 재사용
   - sr04.v: 16비트 카운터와 START 수정이 반영된 센서 모듈
+  - sr04_message_formatter.v: 시작·정지 ASCII 메시지 생성
 
 단독 검증 시 Design Top을 sr04_stopwatch로 지정합니다.
 
@@ -16,6 +20,7 @@ Run Behavioral Simulation을 실행한 뒤 Tcl Console에 run all을 입력합�
 정상 완료 시 다음 문구가 출력됩니다.
   ALL CONTROL TESTS PASSED
   ALL SNAPSHOT TESTS PASSED
+  ALL INTEGRATED MESSAGE TESTS PASSED
 
 테스트벤치는 실행 시간을 줄이기 위해 스톱워치의 Tick 주기만 단축합니다.
 실제 설계의 100MHz 클럭 기준 시간 설정은 변경하지 않습니다.
@@ -83,7 +88,6 @@ Vivado 합성, 타이밍 분석, 실제 센서·보드 동작은 여기서 검�
 
 5. 다음 작업과 남은 사항
 
-  - 저장된 결과를 UART용 ASCII 메시지로 변환
   - sw_req, sw_accept, rx_busy를 이용한 전송 요청 처리
   - UART가 바쁠 때 메시지 보관 및 다음 결과 처리 규칙 구현
   - UART가 정지한 상태에서도 SR04 선택 시 거리만 측정·표시하는 기능
@@ -95,3 +99,41 @@ stopwatch.v에는 예전 단독 상위 모듈 stopwatch도 들어 있습니다.
 그 모듈은 별도 btn_debounce, control_unit, fnd_controller 파일이 필요합니다.
 sr04_stopwatch를 최상위로 사용하는 이번 테스트에서는 해당 모듈들을 사용하지 않습니다.
 예전 stopwatch 자체를 최상위로 사용하려면 해당 파일들도 추가해야 합니다.
+
+6. v0.3.0 ASCII 메시지 생성
+
+추가 파일:
+  - sr04_message_formatter.v: Design Sources에 반드시 추가
+  - tb_sr04_message_formatter.v: 별도 메시지 테스트용 Simulation Sources
+
+출력 포트:
+  - message[239:0]: 최대 30바이트 ASCII 메시지
+  - message_len[5:0]: 실제 메시지 바이트 수(CR/LF 포함)
+  - message_valid: 메시지가 새로 만들어졌다는 1클럭 펄스
+
+첫 문자는 message[239:232]에 들어갑니다.
+그다음 문자는 message[231:224]에 들어갑니다.
+사용하지 않는 뒤쪽 바이트는 0입니다. 이 0은 전송 길이에 포함하지 않습니다.
+
+시작 메시지: start_stopwatch\r\n (17바이트)
+정지 메시지: stop_DDDcm_hh:mm:ss.cc\r\n (24바이트)
+예: stop_123cm_00:01:23.45\r\n
+거리는 세 자리로 고정합니다. 9cm는 009cm로 표시합니다.
+시간의 각 항목도 두 자리입니다. cc는 10ms 단위입니다.
+\r과 \n은 문자 두 개씩이 아니라 각각 0x0D, 0x0A 바이트입니다.
+센서 실패를 나타내는 기존 값 400도 현재는 400cm로 표시됩니다.
+
+시작 명령을 수락한 다음 클럭에 시작 메시지가 완성됩니다.
+정지 결과가 저장되고 result_valid가 발생한 다음 클럭에 정지 메시지가 완성됩니다.
+메시지 출력은 다음 메시지 또는 리셋까지 유지됩니다.
+message_valid는 sw_req가 아닙니다. UART busy 확인이나 수락 대기는 아직 없습니다.
+다음 이벤트가 오면 이전 메시지가 교체되므로 현재 버전만으로는 전송을 보장하지 않습니다.
+다음 단계에서 전송 대기 보관과 sw_req/sw_accept를 연결해야 합니다.
+
+메시지만 테스트하려면 Simulation Top을 tb_sr04_message_formatter로 바꾸고
+Run Behavioral Simulation 후 run all을 입력합니다.
+정상 완료 문구: ALL ASCII TESTS PASSED
+통합 테스트 시에는 Simulation Top을 tb_sr04_stopwatch로 지정합니다.
+
+Icarus Verilog 12.0에서 메시지 단독 테스트와 통합 테스트를 모두 통과했습니다.
+v0.3.0의 Vivado 검증은 사용자가 별도로 실행해야 합니다.

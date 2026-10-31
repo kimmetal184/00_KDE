@@ -27,10 +27,15 @@ module sr04_stopwatch (
     output reg [5:0] result_sec,
     output reg [5:0] result_min,
     output reg [4:0] result_hour,
-    output reg [8:0] result_distance
+    output reg [8:0] result_distance,
+    // ASCII preview, not yet the UART req/accept interface.
+    output [239:0] message,
+    output [5:0] message_len,
+    output message_valid
 );
     reg fpga_run, fpga_mode;
     reg uart_run;
+    reg start_valid;
     wire uart_clear = uart_start && !uart_stop;
     wire [6:0] fpga_msec, display_msec;
     wire [5:0] fpga_sec, fpga_min, display_sec, display_min;
@@ -57,6 +62,7 @@ module sr04_stopwatch (
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             uart_run <= 0;
+            start_valid <= 0;
             result_valid <= 0;
             result_msec <= 0;
             result_sec <= 0;
@@ -64,6 +70,7 @@ module sr04_stopwatch (
             result_hour <= 0;
             result_distance <= 0;
         end else begin
+            start_valid <= uart_clear;
             result_valid <= uart_stop && uart_run;
             if (uart_stop)
                 uart_run <= 0;
@@ -79,6 +86,15 @@ module sr04_stopwatch (
             end
         end
     end
+
+    sr04_message_formatter U_MESSAGE_FORMATTER (
+        .clk(clk), .rst(rst), .start_valid(start_valid),
+        .result_valid(result_valid), .result_msec(result_msec),
+        .result_sec(result_sec), .result_min(result_min),
+        .result_hour(result_hour), .result_distance(result_distance),
+        .message(message), .message_len(message_len),
+        .message_valid(message_valid)
+    );
 
     stopwatch_datapath U_FPGA_STOPWATCH (
         .clk(clk), .rst(rst), .run_stop(fpga_run),

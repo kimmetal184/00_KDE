@@ -1,0 +1,30 @@
+# 변경 이력
+
+현재 버전: **v0.3.0**
+
+## v0.3.0 — UART ASCII 메시지 생성
+
+- 새 파일 `sr04_message_formatter.v`: 시작 메시지(17바이트)와 정지 결과 메시지(24바이트) 생성.
+- `sr04_stopwatch.v`: 저장된 결과를 메시지 생성 모듈에 연결하고 `message`, `message_len`, `message_valid` 출력 추가.
+- 새 파일 `tb_sr04_message_formatter.v`: 전체 ASCII 바이트, 길이, CR/LF, 0 채움, 메시지 유지·펄스, 리셋 검증.
+- `tb_sr04_stopwatch.v`: 시작·정지·재시작 메시지의 통합 연결 검증 추가.
+- `SR04_SETUP.txt`: 추가 파일 등록과 메시지 규격을 한글로 설명.
+- 검증: Icarus Verilog 12.0 컴파일 및 단독·통합 시뮬레이션 통과. 기존 제어·결과 저장 테스트도 통과.
+- Vivado 검증: 아직 미확인.
+- 남은 작업: `sw_req`·`sw_accept`·`rx_busy`, 전송 대기 메시지 보관 및 충돌 처리, 팀 인터페이스 확정, 실제 UART 송신 검증.
+- 메시지 규격은 첫 문자를 상위 바이트에 배치하며 거리는 세 자리로 고정. 팀 담당자와 최종 확인 필요.
+- `stopwatch.v`, `sr04.v`는 변경하지 않음.
+
+## v0.2.0 — 정지 결과 저장
+
+- `sr04_stopwatch.v`: 정지 시 시간·거리 결과를 별도로 저장하고 `result_valid` 펄스 출력.
+- 재시작과 FPGA 버튼 조작 후에도 이전 결과 유지. 다음 유효한 정지에서 갱신.
+- `tb_sr04_stopwatch.v`: 결과 저장·유지·갱신·중복 정지·리셋 검증.
+- 검증: Icarus 시뮬레이션 통과. 사용자가 Vivado에서도 제어·결과 저장 테스트 통과를 확인.
+
+## v0.1.0 — FPGA·UART 제어 분리
+
+- FPGA용·UART용으로 `stopwatch_datapath`를 각각 사용.
+- FPGA Run/Stop, Clear, UP/DOWN, Lap 및 UART 시작·정지를 독립 제어.
+- 기존 센서·스톱워치 하위 모듈 재사용, FND 출력은 임시 packed BCD 형식.
+- 검증: Icarus 시뮬레이션 통과. 사용자가 Vivado에서도 제어 테스트 통과를 확인.

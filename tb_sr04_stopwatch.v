@@ -16,6 +16,10 @@ module tb_sr04_stopwatch;
     wire [5:0] result_sec, result_min;
     wire [4:0] result_hour;
     wire [8:0] result_distance;
+    wire [239:0] message;
+    wire [5:0] message_len;
+    wire message_valid;
+    integer start_messages=0, stop_messages=0;
     integer events=0;
     sr04_stopwatch dut (
         .clk(clk), .rst(rst), .btn_run_stop(btn_run_stop),
@@ -28,12 +32,31 @@ module tb_sr04_stopwatch;
         .uart_distance(uart_distance),
         .result_msec(result_msec), .result_sec(result_sec),
         .result_min(result_min), .result_hour(result_hour),
-        .result_distance(result_distance)
+        .result_distance(result_distance),
+        .message(message), .message_len(message_len), .message_valid(message_valid)
     );
     // Accelerate only the stopwatch dividers: 100 clocks per centisecond.
     defparam dut.U_FPGA_STOPWATCH.U_TICK_GEN_100HZ.F_COUNT = 100;
     defparam dut.U_UART_STOPWATCH.U_TICK_GEN_100HZ.F_COUNT = 100;
     always @(negedge clk) if (result_valid) events=events+1;
+    // Check wrapper wiring for start, stop, restart and duplicate idle stop.
+    always @(negedge clk) begin
+        if (!rst && message_valid) begin
+            if (message_len == 17) begin
+                if (message !== {"start_stopwatch",8'h0d,8'h0a,104'b0})
+                    $fatal(1,"Integrated start message mismatch");
+                start_messages = start_messages + 1;
+            end else if (message_len == 24) begin
+                if (stop_messages == 0 &&
+                    message !== {"stop_123cm_00:00:00.07",8'h0d,8'h0a,48'b0})
+                    $fatal(1,"Integrated first stop mismatch");
+                if (stop_messages == 1 &&
+                    message !== {"stop_000cm_00:00:00.01",8'h0d,8'h0a,48'b0})
+                    $fatal(1,"Integrated second stop mismatch");
+                stop_messages = stop_messages + 1;
+            end else $fatal(1,"Integrated message length mismatch");
+        end
+    end
     initial begin
         #100; @(negedge clk); rst=0;
         uart_start=1;
@@ -86,12 +109,16 @@ module tb_sr04_stopwatch;
         @(negedge clk); uart_stop=0;
         if (result_valid !== 1'b0 || result_msec !== 7'd1)
             $fatal(1,"Idle stop changed result");
+        @(negedge clk);
+        if (start_messages != 2 || stop_messages != 2)
+            $fatal(1,"Missing or duplicate messages");
         rst=1;
         @(negedge clk);
         if ({result_hour,result_min,result_sec,result_msec,result_distance} !== 0)
             $fatal(1,"Reset did not clear result");
         $display("ALL CONTROL TESTS PASSED");
         $display("ALL SNAPSHOT TESTS PASSED");
+        $display("ALL INTEGRATED MESSAGE TESTS PASSED");
         $finish;
     end
     initial begin
