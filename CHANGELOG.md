@@ -1,6 +1,18 @@
 # 변경 이력
 
-현재 버전: **v0.5.0**
+현재 버전: **v0.6.0**
+
+## v0.6.0 — 팀 UART 연결 및 직렬 통신 시뮬레이션
+
+- 새 파일 `top_sr04_uart.v`: 팀 UART와 SR04_STOPWATCH 연결. DHT 송신 입력은 단독 검증을 위해 0으로 연결.
+- 새 파일 `uart_comm.v`: 업로드된 팀 코드 기반. 기존 ss_r CR/LF 대신 단일 r을 즉시 토글 펄스로 해석. 선택적 CR/LF는 추가 토글하지 않음. dw_r CR/LF 명령 유지.
+- 새 파일 `uart_rx.v`, `uart_tx.v`: 올바르게 다시 업로드된 RX/TX 원본 재사용.
+- 새 파일 `fifo.v`: 업로드 원본 기반. fifo/register_file/control_unit 모듈 이름을 uart_rx_fifo/uart_fifo_storage/uart_fifo_control로 구분하고 uart_comm 인스턴스도 변경. 기능 변경 없음.
+- 새 파일 `tb_top_sr04_uart.sv`: 100MHz, 9600bps 설정에서 직렬 RX 입력과 독립적인 PC 측 TX 비트 샘플링으로 연결 검증. Enter 없는 r, 송신 busy 중 정지, 메시지 전체 바이트, 센서 거리 결과, CR/LF 무시, DHT 명령 분리 확인.
+- 검증: Icarus Verilog 12.0에서 실제 UART RX/TX RTL을 통한 9600bps 직렬 통합 시뮬레이션 통과. 기존 v0.5.0 제어·ASCII·대기열 테스트도 회귀 통과.
+- Vivado v0.6.0 검증은 아직 미확인.
+- 실제 보드 및 물리 PC 연결, 전체 Watch/DHT/FND 통합은 아직 미검증.
+- 기존 SR04_STOPWATCH 소스는 변경하지 않음. 새 TOP에서 모듈들을 연결.
 
 ## v0.5.0 — r 하나로 시작·정지 토글
 

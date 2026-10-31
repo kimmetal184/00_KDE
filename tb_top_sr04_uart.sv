@@ -1,0 +1,111 @@
+`timescale 1ns / 1ps
+module tb_top_sr04_uart;
+    localparam BIT_NS=104160; // 100MHz / (9600*16) truncates to 651 clocks/tick.
+    reg clk=0, rst=1, uart_rxd=1, echo=0;
+    always #5 clk=~clk;
+    wire uart_txd, trig, rx_busy, tx_queue_full, tx_overflow;
+    wire [15:0] data;
+    integer bytes_seen=0, r_events=0, dht_events=0;
+    string start_text={"start_stopwatch",8'h0d,8'h0a};
+    string stop_text="";
+    reg [7:0] received;
+    integer bit_index;
+    top_sr04_uart dut (
+        .clk(clk), .rst(rst), .uart_rxd(uart_rxd), .uart_txd(uart_txd),
+        .btn_run_stop(1'b0), .btn_clear(1'b0), .btn_mode(1'b0), .btn_lap(1'b0),
+        .sw_mode(2'b10), .display_mode(1'b0), .echo(echo), .trig(trig),
+        .data(data), .rx_busy(rx_busy), .tx_queue_full(tx_queue_full),
+        .tx_overflow(tx_overflow)
+    );
+    task send_byte;
+        input [7:0] value;
+        integer i;
+        begin
+            @(negedge clk); uart_rxd=0;
+            #(BIT_NS);
+            for (i=0; i<8; i=i+1) begin
+                uart_rxd=value[i]; #(BIT_NS);
+            end
+            uart_rxd=1; #(BIT_NS);
+        end
+    endtask
+    // Emulated sensor, but real UART RX/TX RTL with real serial bit timing.
+    initial begin
+        wait(rst == 0);
+        @(negedge trig);
+        #100000; echo=1;
+        #5800000; echo=0;
+    end
+    always @(negedge clk) begin
+        if (!rst && dut.r_pulse) r_events=r_events+1;
+        if (!rst && dut.U_UART.comm_valid &&
+            dut.U_UART.comm == {"dw_r",8'h0d,8'h0a}) dht_events=dht_events+1;
+        if (!rst && dut.U_SR04_STOPWATCH.result_valid) begin
+            stop_text=$sformatf("stop_%03dcm_%02d:%02d:%02d.%02d",
+                dut.U_SR04_STOPWATCH.result_distance,
+                dut.U_SR04_STOPWATCH.result_hour,
+                dut.U_SR04_STOPWATCH.result_min,
+                dut.U_SR04_STOPWATCH.result_sec,
+                dut.U_SR04_STOPWATCH.result_msec);
+            stop_text={stop_text,8'h0d,8'h0a};
+        end
+    end
+    // Independent PC-side 8N1 receiver: sample the actual tx pin, not tx_data.
+    initial begin
+        wait(rst == 0);
+        forever begin
+            @(negedge uart_txd);
+            #(BIT_NS/2);
+            if (uart_txd !== 0) $fatal(1,"Bad TX start bit");
+            for (bit_index=0;bit_index<8;bit_index=bit_index+1) begin
+                #(BIT_NS); received[bit_index]=uart_txd;
+            end
+            #(BIT_NS);
+            if (uart_txd !== 1) $fatal(1,"Bad TX stop bit");
+            if (bytes_seen < 17) begin
+                if (received !== start_text[bytes_seen])
+                    $fatal(1,"Start serial byte mismatch at %0d",bytes_seen);
+            end else if (bytes_seen < 41) begin
+                if (stop_text.len() != 24 || received !== stop_text[bytes_seen-17])
+                    $fatal(1,"Stop serial byte mismatch at %0d",bytes_seen);
+            end else $fatal(1,"Unexpected extra TX byte");
+            bytes_seen=bytes_seen+1;
+        end
+    end
+    initial begin
+        #100; @(negedge clk); rst=0;
+        repeat(1000) @(negedge clk);
+        send_byte("r"); // No Enter: start must be immediate after byte reception.
+        wait(r_events == 1);
+        if (dut.U_SR04_STOPWATCH.uart_run !== 1) begin
+            @(negedge clk);
+            if (dut.U_SR04_STOPWATCH.uart_run !== 1) $fatal(1,"r did not start");
+        end
+        wait(dut.U_SR04_STOPWATCH.distance_hold >= 99);
+        if (dut.U_SR04_STOPWATCH.distance_hold > 101)
+            $fatal(1,"Sensor distance out of range");
+        // Ensure at least one real 10ms stopwatch tick before stopping.
+        #5000000;
+        if (rx_busy !== 1) $fatal(1,"Expected stop during start message transmission");
+        send_byte("r"); // Stop while real UART is transmitting: result must queue.
+        send_byte(8'h0d); send_byte(8'h0a);
+        wait(bytes_seen == 41);
+        if (dut.U_SR04_STOPWATCH.result_msec == 0)
+            $fatal(1,"Expected nonzero real elapsed time");
+        wait(rx_busy == 0);
+        if (r_events != 2 || dut.U_SR04_STOPWATCH.uart_run !== 0 || tx_overflow !== 0)
+            $fatal(1,"Toggle, CR/LF handling or queue failed");
+        send_byte("d"); send_byte("w"); send_byte("_"); send_byte("r");
+        send_byte(8'h0d); send_byte(8'h0a);
+        repeat(1000) @(negedge clk);
+        if (r_events != 2 || dht_events != 1 || bytes_seen != 41)
+            $fatal(1,"DHT command triggered stopwatch or was lost");
+        $display("SERIAL START: %s",start_text);
+        $display("SERIAL STOP: %s",stop_text);
+        $display("ALL SERIAL UART INTEGRATION TESTS PASSED");
+        $finish;
+    end
+    initial begin
+        #70000000; $fatal(1,"Serial integration timeout");
+    end
+endmodule
