@@ -8,9 +8,9 @@ module sr04_stopwatch (
     input btn_clear,
     input btn_mode,
     input btn_lap,
-    // Decoded UART command pulses: sr_r / sr_s.
-    input uart_start,
-    input uart_stop,
+    // One clock per received ASCII 'r' (0x72), produced by UART decoder.
+    // First r starts; next r stops; the sequence repeats.
+    input r_pulse,
     input [1:0] sw_mode,
     input display_mode,
     input echo,
@@ -43,7 +43,9 @@ module sr04_stopwatch (
     reg fpga_run, fpga_mode;
     reg uart_run;
     reg start_valid;
-    wire uart_clear = uart_start && !uart_stop;
+    wire uart_start = r_pulse && !uart_run;
+    wire uart_stop = r_pulse && uart_run;
+    wire uart_clear = uart_start;
     wire [6:0] fpga_msec, display_msec;
     wire [5:0] fpga_sec, fpga_min, display_sec, display_min;
     wire [4:0] fpga_hour, display_hour;
@@ -65,7 +67,7 @@ module sr04_stopwatch (
     end
 
     // Snapshot the visible time at the clock accepting stop.
-    // Start+stop gives stop priority; a repeated idle stop creates no result.
+    // Each r toggles UART run state; starting clears only live measurements.
     always @(posedge clk or posedge rst) begin
         if (rst) begin
             uart_run <= 0;

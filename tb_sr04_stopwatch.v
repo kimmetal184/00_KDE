@@ -3,7 +3,7 @@ module tb_sr04_stopwatch;
     reg clk=0, rst=1;
     always #5 clk=~clk;
     reg btn_run_stop=0, btn_clear=0, btn_mode=0, btn_lap=0;
-    reg uart_start=0, uart_stop=0;
+    reg r_pulse=0;
     reg [1:0] sw_mode=0;
     reg display_mode=0, echo=0;
     wire trig, result_valid;
@@ -32,7 +32,7 @@ module tb_sr04_stopwatch;
     sr04_stopwatch dut (
         .clk(clk), .rst(rst), .btn_run_stop(btn_run_stop),
         .btn_clear(btn_clear), .btn_mode(btn_mode), .btn_lap(btn_lap),
-        .uart_start(uart_start), .uart_stop(uart_stop),
+        .r_pulse(r_pulse),
         .sw_mode(sw_mode), .display_mode(display_mode), .echo(echo),
         .trig(trig), .data(data), .result_valid(result_valid),
         .uart_msec(uart_msec), .uart_sec(uart_sec),
@@ -84,7 +84,7 @@ module tb_sr04_stopwatch;
     defparam dut.U_FPGA_STOPWATCH.U_TICK_GEN_100HZ.F_COUNT = 100;
     defparam dut.U_UART_STOPWATCH.U_TICK_GEN_100HZ.F_COUNT = 100;
     always @(negedge clk) if (result_valid) events=events+1;
-    // Check wrapper wiring for start, stop, restart and duplicate idle stop.
+    // Check four r pulses produce start, stop, start, stop in order.
     always @(negedge clk) begin
         if (!rst && message_valid) begin
             if (message_len == 17) begin
@@ -104,8 +104,8 @@ module tb_sr04_stopwatch;
     end
     initial begin
         #100; @(negedge clk); rst=0;
-        uart_start=1;
-        @(negedge clk); uart_start=0;
+        r_pulse=1;
+        @(negedge clk); r_pulse=0;
         repeat(350) @(negedge clk);
         if (uart_msec !== 7'd3 || dut.fpga_msec !== 7'd0)
             $fatal(1,"UART start affected FPGA or UART count failed");
@@ -118,8 +118,8 @@ module tb_sr04_stopwatch;
         // sensor timing test here. The real sensor is still instantiated.
         force dut.distance_valid = 1'b1;
         force dut.measured_distance = 9'd123;
-        uart_stop=1;
-        @(negedge clk); uart_stop=0;
+        r_pulse=1;
+        @(negedge clk); r_pulse=0;
         release dut.distance_valid;
         release dut.measured_distance;
         if ({result_hour,result_min,result_sec,result_msec} !== {5'd0,6'd0,6'd0,7'd7}
@@ -137,23 +137,22 @@ module tb_sr04_stopwatch;
         @(negedge clk); btn_clear=0;
         if (dut.fpga_msec !== 7'd0 || data !== 16'h0000 || uart_msec !== 7'd7)
             $fatal(1,"FPGA clear isolation failed");
-        uart_start=1;
-        @(negedge clk); uart_start=0;
+        r_pulse=1;
+        @(negedge clk); r_pulse=0;
         if (uart_msec !== 7'd0) $fatal(1,"UART restart did not clear");
         repeat(150) @(negedge clk);
         if (uart_msec !== 7'd1) $fatal(1,"UART restart did not run");
         if (result_msec !== 7'd7 || result_distance !== 9'd123)
             $fatal(1,"Restart changed previous result");
-        // Idle stop must not replace the last result or emit another event.
-        uart_stop=1;
-        @(negedge clk); uart_stop=0;
+        // Fourth r stops the restarted measurement.
+        r_pulse=1;
+        @(negedge clk); r_pulse=0;
         @(negedge clk);
         if (result_msec !== 7'd1 || result_distance !== 9'd0)
             $fatal(1,"Next stop did not replace snapshot");
-        uart_stop=1;
-        @(negedge clk); uart_stop=0;
-        if (result_valid !== 1'b0 || result_msec !== 7'd1)
-            $fatal(1,"Idle stop changed result");
+        repeat(4) @(negedge clk);
+        if (result_valid !== 1'b0 || result_msec !== 7'd1 || dut.uart_run !== 0)
+            $fatal(1,"State changed without another r pulse");
         @(negedge clk);
         if (start_messages != 2 || stop_messages != 2)
             $fatal(1,"Missing or duplicate messages");
@@ -165,6 +164,14 @@ module tb_sr04_stopwatch;
         @(negedge clk);
         if ({result_hour,result_min,result_sec,result_msec,result_distance} !== 0)
             $fatal(1,"Reset did not clear result");
+        rst=0;
+        r_pulse=1;
+        @(negedge clk); r_pulse=0;
+        if (dut.uart_run !== 1 || uart_msec !== 0 || result_valid !== 0)
+            $fatal(1,"First r after reset did not start from zero");
+        wait(accepted == 5);
+        @(negedge clk);
+        $display("ALL R TOGGLE TESTS PASSED");
         $display("ALL CONTROL TESTS PASSED");
         $display("ALL SNAPSHOT TESTS PASSED");
         $display("ALL INTEGRATED MESSAGE TESTS PASSED");
