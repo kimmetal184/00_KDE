@@ -1,0 +1,32 @@
+SR04_STOPWATCH control separation
+
+Design Sources:
+  sr04_stopwatch.v (replaced wrapper)
+  stopwatch.v (unchanged upload)
+  sr04.v (unchanged upload: 16-bit counter and corrected START)
+Set design top to sr04_stopwatch for standalone validation.
+Simulation Sources:
+  tb_sr04_stopwatch.v (set simulation top to tb_sr04_stopwatch)
+Run behavioral simulation, then run all.
+Expected: ALL CONTROL TESTS PASSED.
+Testbench accelerates stopwatch tick generators only.
+
+Ports changed: remove r_pulse; add uart_start, uart_stop,
+btn_run_stop, btn_clear, btn_mode, btn_lap.
+Button inputs must be debounced one-clock pulses.
+UART time and distance output ports were added.
+FND data is provisionally packed BCD; confirm with team.
+Clear preserves FPGA run/direction and clears count and lap.
+
+Validated with Icarus Verilog 12.0:
+  selected-top compile and control separation simulation.
+  UART-only count; simultaneous independent count; UART stop/result pulse;
+  FPGA lap display; FPGA clear isolation; UART restart.
+Not validated here: Vivado synthesis, timing, hardware sensor behavior.
+Not implemented: UART ASCII message creation and req/accept handshake,
+immutable result snapshot, sensor-only FND measurement when UART is idle.
+Existing sensor behavior retained: TRIG minimum 10us is not yet guaranteed;
+in-flight measurement across rapid UART restart needs session handling.
+stopwatch.v includes a legacy standalone stopwatch top referencing external
+btn_debounce/control_unit/fnd_controller modules. These are not needed when
+sr04_stopwatch is selected as top; required if using the legacy top itself.
