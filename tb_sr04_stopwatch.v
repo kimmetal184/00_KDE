@@ -20,6 +20,14 @@ module tb_sr04_stopwatch;
     wire [5:0] message_len;
     wire message_valid;
     integer start_messages=0, stop_messages=0;
+    reg rx_busy=1, sw_accept=0;
+    wire sw_req, tx_queue_full, tx_overflow;
+    wire [239:0] sw_msg;
+    wire [5:0] sw_len;
+    reg [239:0] expected_messages [0:15];
+    reg [5:0] expected_lengths [0:15];
+    integer produced=0, accepted=0, busy_cycles=400;
+    reg reject_once=1;
     integer events=0;
     sr04_stopwatch dut (
         .clk(clk), .rst(rst), .btn_run_stop(btn_run_stop),
@@ -33,8 +41,45 @@ module tb_sr04_stopwatch;
         .result_msec(result_msec), .result_sec(result_sec),
         .result_min(result_min), .result_hour(result_hour),
         .result_distance(result_distance),
-        .message(message), .message_len(message_len), .message_valid(message_valid)
+        .message(message), .message_len(message_len), .message_valid(message_valid),
+        .rx_busy(rx_busy), .sw_accept(sw_accept), .sw_req(sw_req),
+        .sw_msg(sw_msg), .sw_len(sw_len),
+        .tx_queue_full(tx_queue_full), .tx_overflow(tx_overflow)
     );
+    // Fake UART: copy the entire payload on the request sampling edge,
+    // then register accept/busy. Reject the first request to emulate arbitration.
+    always @(posedge clk) begin
+        sw_accept <= 0;
+        if (!rst) begin
+            if (message_valid) begin
+                expected_messages[produced] = message;
+                expected_lengths[produced] = message_len;
+                produced = produced + 1;
+            end
+            if (busy_cycles > 0) begin
+                busy_cycles = busy_cycles - 1;
+                rx_busy <= 1;
+            end else begin
+                rx_busy <= 0;
+                if (sw_req && !rx_busy) begin
+                    if (reject_once) begin
+                        reject_once = 0;
+                        rx_busy <= 1;
+                        busy_cycles = 5;
+                    end else begin
+                        if (accepted >= produced ||
+                            sw_msg !== expected_messages[accepted] ||
+                            sw_len !== expected_lengths[accepted])
+                            $fatal(1,"UART accepted wrong payload or order");
+                        accepted = accepted + 1;
+                        sw_accept <= 1;
+                        rx_busy <= 1;
+                        busy_cycles = 20;
+                    end
+                end
+            end
+        end
+    end
     // Accelerate only the stopwatch dividers: 100 clocks per centisecond.
     defparam dut.U_FPGA_STOPWATCH.U_TICK_GEN_100HZ.F_COUNT = 100;
     defparam dut.U_UART_STOPWATCH.U_TICK_GEN_100HZ.F_COUNT = 100;
@@ -112,6 +157,10 @@ module tb_sr04_stopwatch;
         @(negedge clk);
         if (start_messages != 2 || stop_messages != 2)
             $fatal(1,"Missing or duplicate messages");
+        wait(accepted == 4);
+        repeat(5) @(negedge clk);
+        if (produced != 4 || tx_overflow !== 0)
+            $fatal(1,"Integrated queue lost or overflowed messages");
         rst=1;
         @(negedge clk);
         if ({result_hour,result_min,result_sec,result_msec,result_distance} !== 0)
@@ -119,6 +168,7 @@ module tb_sr04_stopwatch;
         $display("ALL CONTROL TESTS PASSED");
         $display("ALL SNAPSHOT TESTS PASSED");
         $display("ALL INTEGRATED MESSAGE TESTS PASSED");
+        $display("ALL INTEGRATED UART TESTS PASSED");
         $finish;
     end
     initial begin

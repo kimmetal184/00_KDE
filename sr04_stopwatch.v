@@ -28,10 +28,17 @@ module sr04_stopwatch (
     output reg [5:0] result_min,
     output reg [4:0] result_hour,
     output reg [8:0] result_distance,
-    // ASCII preview, not yet the UART req/accept interface.
+    // ASCII preview; connect UART to sw_msg/sw_len/sw_req below.
     output [239:0] message,
     output [5:0] message_len,
-    output message_valid
+    output message_valid,
+    input rx_busy,
+    input sw_accept,
+    output sw_req,
+    output [239:0] sw_msg,
+    output [5:0] sw_len,
+    output tx_queue_full,
+    output tx_overflow
 );
     reg fpga_run, fpga_mode;
     reg uart_run;
@@ -94,6 +101,13 @@ module sr04_stopwatch (
         .result_hour(result_hour), .result_distance(result_distance),
         .message(message), .message_len(message_len),
         .message_valid(message_valid)
+    );
+
+    sr04_uart_request U_UART_REQUEST (
+        .clk(clk), .rst(rst), .message(message), .message_len(message_len),
+        .message_valid(message_valid), .rx_busy(rx_busy), .sw_accept(sw_accept),
+        .sw_req(sw_req), .sw_msg(sw_msg), .sw_len(sw_len),
+        .queue_full(tx_queue_full), .overflow(tx_overflow)
     );
 
     stopwatch_datapath U_FPGA_STOPWATCH (
