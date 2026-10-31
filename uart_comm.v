@@ -1,7 +1,7 @@
 `timescale 1ns / 1ps
 
 // UART 통합 모듈
-// RX : 단일 r은 즉시 Stopwatch 토글, dw_r CR/LF는 기존 DHT 명령 유지
+// RX : PC 명령(dw_r / ss_r) 수신 -> comm, comm_valid 출력
 // TX : Watch / Stopwatch의 완성된 ASCII 메시지를 받아 PC로 전송
 //      메시지 처리 중에는 새 요청을 받지 않음 (rx_busy = 1)
 module uart_comm #(
@@ -31,7 +31,7 @@ module uart_comm #(
     // UART -> 각 모듈: PC 명령 수신 결과
     output reg [ 47:0] comm,
     output reg         comm_valid,
-    output reg         r_pulse      // 단일 r 수신 시 Stopwatch에 1클럭
+    output reg         r_pulse      // ss_r 명령 수신 시 Stopwatch에 1클럭
 );
 
 
@@ -64,7 +64,7 @@ module uart_comm #(
     wire       w_fifo_full, w_fifo_empty;
     wire       w_fifo_pop = !w_fifo_empty;
 
-    uart_rx_fifo #(
+    fifo #(
         .DEPTH      (8),
         .A_BIT_WIDTH(3),
         .D_BIT_WIDTH(8)
@@ -79,9 +79,10 @@ module uart_comm #(
         .empty    (w_fifo_empty)
     );
 
-    // Standalone r is handled immediately, without Enter/CR/LF.
-    // DHT keeps its existing line command dw_r CR/LF.
+    // 명령어는 총 6바이트: "dw_r\r\n" 또는 "ss_r\r\n"
+    // 한 글자씩 모았다가 LF(0x0A)를 받으면 명령을 확인한다.
     localparam [47:0] CMD_DHT = {"dw_r", 8'h0D, 8'h0A};
+    localparam [47:0] CMD_SW  = {"ss_r", 8'h0D, 8'h0A};
 
     reg  [47:0] comm_shift;
     wire [47:0] w_new_comm = {comm_shift[39:0], w_fifo_data};
@@ -97,20 +98,14 @@ module uart_comm #(
             r_pulse    <= 1'b0;
 
             if (w_fifo_pop) begin
-                if (comm_shift == 0 && w_fifo_data == 8'h72) begin
-                    r_pulse <= 1;
-                    comm <= {40'b0,8'h72};
-                    comm_valid <= 1;
-                    comm_shift <= 0;
-                end else if (w_fifo_data == 8'h0A) begin
-                    comm_shift <= 0;
-                    if (w_new_comm == CMD_DHT) begin
-                        comm <= w_new_comm;
-                        comm_valid <= 1;
+                if (w_fifo_data == 8'h0A) begin
+                    comm_shift <= 48'd0;
+                    if (w_new_comm == CMD_DHT || w_new_comm == CMD_SW) begin
+                        comm       <= w_new_comm;
+                        comm_valid <= 1'b1;  // 새 명령 도착 알림 (1클럭)
+                        if (w_new_comm == CMD_SW)
+                            r_pulse <= 1'b1;
                     end
-                end else if (comm_shift == 0 && w_fifo_data == 8'h0D) begin
-                    // Ignore optional CR/LF following a standalone r.
-                    comm_shift <= 0;
                 end else begin
                     comm_shift <= w_new_comm;
                 end

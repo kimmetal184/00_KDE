@@ -1,4 +1,4 @@
-현재 버전: v0.6.0 — 팀 UART 연결
+현재 버전: v0.7.0 — 공용 UART 원본과 SR04 명령 어댑터
 변경 이력은 CHANGELOG.md를 확인하세요.
 
 SR04_STOPWATCH 사용 안내
@@ -219,58 +219,72 @@ UART가 바쁘면 대기열에서 기다리므로 입력 즉시 PC에 표시된�
 통합 테스트 통과 문구에 ALL R TOGGLE TESTS PASSED가 추가됩니다.
 Icarus Verilog 12.0에서 통합 테스트 통과. Vivado v0.5.0은 별도 확인이 필요합니다.
 
-9. v0.6.0 팀 UART와 연결
+9. v0.7.0 공용 UART 원본과 연결
 
-실제 UART 회로까지 포함한 테스트에는 다음 Design Sources가 필요합니다.
-  기존 파일:
-    sr04_stopwatch.v, stopwatch.v, sr04.v,
-    sr04_message_formatter.v, sr04_uart_request.v
-  새 파일:
-    top_sr04_uart.v, uart_comm.v, uart_rx.v, uart_tx.v, fifo.v
+사용자 요청: 공용 UART 소스는 팀원이 제공한 원본 그대로 사용합니다.
+  - uart_comm.v, uart_rx.v, uart_tx.v, fifo.v 모두 업로드 원본과 바이트 단위 동일
+  - 공용 UART 내부의 명령 처리, FIFO 이름, 송신 동작을 변경하지 않음
 
-이 연결 테스트의 Design Top은 top_sr04_uart입니다.
-이전 단계의 SR04 블록 단독 검증에서는 sr04_stopwatch를 계속 사용할 수 있습니다.
-새 Simulation Sources는 tb_top_sr04_uart.sv입니다.
-Simulation Top은 tb_top_sr04_uart로 지정합니다.
-.sv 확장자는 문자열 검증에 SystemVerilog를 사용하기 때문이며,
-설계 소스 자체는 Verilog입니다.
+우리 쪽 추가 모듈:
+  - sr04_command_adapter.v: comm과 comm_valid를 받아 우리 명령만 선택
+  - top_sr04_uart.v: 공용 UART, 우리 어댑터, SR04_STOPWATCH 연결
 
+이번 연결 테스트의 Design Sources:
+  sr04_stopwatch.v, stopwatch.v, sr04.v,
+  sr04_message_formatter.v, sr04_uart_request.v,
+  sr04_command_adapter.v, top_sr04_uart.v,
+  uart_comm.v, uart_rx.v, uart_tx.v, fifo.v
+
+Design Top: top_sr04_uart
+Simulation Sources: tb_top_sr04_uart.sv
+Simulation Top: tb_top_sr04_uart
+.sv 파일은 문자열 비교를 위해 SystemVerilog를 사용합니다.
+설계 소스는 Verilog입니다.
 실행: Run Behavioral Simulation 후 run all
-직렬 테스트는 기존 테스트보다 깁니다. 시뮬레이션 시간은 수십 ms이며,
-정상 UART 속도(9600bps)로 여러 바이트를 전송하므로 실행을 기다려야 합니다.
-이전에 통과하고 $finish로 끝났으면 run all을 다시 입력하지 마세요.
+정상 완료: ALL SERIAL UART INTEGRATION TESTS PASSED
+시뮬레이션 시간은 수십 ms로, 기존 단독 테스트보다 오래 걸립니다.
+통과 후 $finish가 나왔으면 run all을 다시 입력하지 마세요.
 
-예상 완료 문구:
-  ALL SERIAL UART INTEGRATION TESTS PASSED
+PC에서 보내는 명령(현재 연결 기준):
+  ss_r\r\n -> 시작, start_stopwatch 메시지
+  ss_r\r\n -> 정지, 시간·거리 결과 메시지
+  ss_r\r\n -> 초기화 후 새 측정 시작
+\r\n은 실제 CR(0x0D), LF(0x0A) 바이트입니다.
+시리얼 터미널에서는 ss_r을 입력하고 CR+LF가 전송되도록 설정합니다.
 
-연결:
-  UART r_pulse -> SR04 r_pulse
-  UART rx_busy -> SR04 rx_busy
-  UART sw_accept -> SR04 sw_accept
-  SR04 sw_req -> UART sw_req
-  SR04 sw_msg -> UART sw_msg
-  SR04 sw_len -> UART sw_len
+중요: 원본 공용 UART는 단일 r을 유효 명령으로 내보내지 않습니다.
+따라서 공용 소스 변경 없이, 현재 노출된 comm/comm_valid만 받아서
+물리적인 PC 입력 r 한 글자를 인식하도록 만들 수는 없습니다.
+단일 r이 꼭 필요하면 공용 담당자가 바이트 수신 출력이나 해당 명령을 지원해야 합니다.
+SR04 내부 r_pulse는 같은 펄스로 시작·정지가 바뀌는 v0.5 방식 그대로입니다.
 
-단일 r은 Enter 없이 동작합니다. r 뒤의 선택적 CR/LF는 무시합니다.
-팀의 기존 ss_r CR/LF 명령은 이제 스톱워치 명령으로 사용하지 않습니다.
-다른 명령 줄 내부의 r(예: dw_r)은 스톱워치를 토글하지 않습니다.
-잘못된 줄을 입력한 경우 LF로 줄을 종료한 뒤 단일 r을 입력하세요.
+명령 연결:
+  공용 UART comm, comm_valid -> SR04 어댑터 -> r_pulse -> SR04_STOPWATCH
+  공용 UART의 기존 직접 r_pulse 출력은 이 TOP에서는 연결하지 않음
+  dw_r CR/LF는 DHT 명령으로 유지되며 SR04 어댑터는 무시함
 
-FIFO의 일반적인 control_unit 이름이 다른 기능의 동명 모듈과 충돌할 수 있어
-uart_fifo_control로 변경했습니다. FIFO와 uart_comm은 반드시 이번 버전을 함께 사용합니다.
-중복된 이전 FIFO나 잘못 업로드됐던 RX/TX 파일은 프로젝트에서 제외하세요.
-새 uart_rx.v 안에는 module uart_rx, uart_tx.v 안에는 module uart_tx가 있어야 합니다.
+송신 연결(변경 없음):
+  UART rx_busy, sw_accept -> SR04
+  SR04 sw_req, sw_msg, sw_len -> UART
 
-이 TOP은 SR04 부분의 연결 검증용입니다.
-DHT 요청은 0으로 묶었고, 공용 FND는 아직 연결하지 않았습니다.
-data[15:0]는 임시 BCD 출력이며 버튼은 디바운스된 펄스를 받아야 합니다.
-CLK_FREQ는 UART 분주 설정이며 센서와 스톱워치는 기존 100MHz 기준입니다.
-실제 보드 사용 전에는 버튼 처리, 외부 입력 동기화, XDC 핀·클럭 제약,
-센서 전압 연결, 공용 FND 규격 및 기존 TRIG 보완 사항을 별도 확인해야 합니다.
-이 안내만으로 보드 동작을 검증했다고 볼 수 없습니다.
+원본 FIFO는 fifo, register_file, control_unit이라는 모듈 이름을 사용합니다.
+프로젝트 안에 이 이름의 다른 모듈이 있으면 중복 정의를 피해야 합니다.
+이번 변경에서는 공용 원본을 유지하므로 FIFO 내부 이름을 변경하지 않습니다.
+최종 팀 프로젝트에서 이름 충돌이 발생하면 담당자와 파일 구성을 조율하세요.
+이전 v0.6.0의 수정된 UART/FIFO 대신 이번 원본 파일을 사용해야 합니다.
+잘못 업로드됐던 FIFO 내용의 uart_rx/uart_tx 파일은 제외하세요.
 
-검증 범위 구분:
-  - UART RX/TX RTL과 새 TOP의 직렬 통합 시뮬레이션: Icarus에서 검증
-  - 실제 센서: 테스트벤치의 ECHO 펄스로 대체
-  - 실제 PC/보드: 아직 미검증
-  - Vivado v0.6.0: 사용자가 새 테스트벤치로 확인 필요
+TOP은 SR04 연결 검증용이며 DHT 송신 요청은 0으로 묶었습니다.
+공용 FND와 Watch/DHT 전체 기능은 아직 연결하지 않았습니다.
+버튼은 디바운스된 펄스, data는 임시 packed BCD를 사용합니다.
+시스템 클럭은 기존 센서·스톱워치 기준 100MHz를 사용합니다.
+
+검증 범위:
+  - Icarus Verilog 12.0 직렬 통합 테스트 통과(약 58.3ms 시뮬레이션)
+  - 직렬 RX/TX RTL과 센서 ECHO 에뮬레이션을 사용한 연결 테스트
+  - PC 입력 명령과 TX 출력의 전체 ASCII 바이트 및 8N1 비트 샘플링 확인
+  - 보드/PC 실물, 전체 팀 시스템, Vivado v0.7.0 실행은 별도 확인 필요
+기존 센서 TRIG 최소 폭, 외부 신호 동기화 및 XDC/보드 연결 보완 사항은 유지됩니다.
+
+앞의 8절까지는 각 버전의 내부 기능 설명입니다.
+현재 PC 명령과 최상위 연결 규칙은 이 9절을 우선 참고하세요.

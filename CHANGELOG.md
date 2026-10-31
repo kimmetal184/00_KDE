@@ -1,6 +1,17 @@
 # 변경 이력
 
-현재 버전: **v0.6.0**
+현재 버전: **v0.7.0**
+
+## v0.7.0 — 공용 UART 원본 유지, SR04 쪽에서 명령 연결
+
+- 사용자 요청에 따라 uart_comm.v, fifo.v를 업로드 원본으로 복원. uart_rx.v, uart_tx.v도 원본 그대로 유지. 네 파일의 바이트 단위 동일성 확인.
+- 새 파일 `sr04_command_adapter.v`: 공용 `comm[47:0]`, `comm_valid`를 받아 ss_r CR/LF일 때만 우리 쪽 r_pulse 생성.
+- `top_sr04_uart.v`: 공용 UART의 직접 r_pulse 대신 SR04 명령 어댑터 사용. 송신 req/accept 인터페이스 유지.
+- `tb_top_sr04_uart.sv`: 원본 명령 ss_r CR/LF로 시작·정지 및 직렬 메시지 검증. DHT 명령 분리와 단일 r 미인식 확인.
+- 명령 차이: 원본 UART는 r 한 글자를 외부로 전달하지 않음. PC에서는 ss_r CR/LF를 반복 전송해야 함. 내부 SR04의 r_pulse 토글 방식은 유지.
+- 검증: Icarus Verilog 12.0 직렬 통합 테스트 통과(약 58.3ms 시뮬레이션). 원본 네 파일의 바이트 동일성 확인.
+- 아직 미검증: 실제 보드/PC 및 전체 Watch/DHT/FND 연결, Vivado v0.7.0 실행.
+- FIFO의 원본 일반 모듈 이름도 복원됨. 팀 전체에서 다른 control_unit 등이 중복 정의되면 공용 담당자와 네임스페이스 조율 필요.
 
 ## v0.6.0 — 팀 UART 연결 및 직렬 통신 시뮬레이션
 

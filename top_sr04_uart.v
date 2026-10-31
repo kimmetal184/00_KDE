@@ -20,13 +20,19 @@ module top_sr04_uart #(
     output tx_overflow
 );
     wire r_pulse, sw_req, sw_accept;
+    wire [47:0] comm;
+    wire comm_valid;
     wire [239:0] sw_msg;
     wire [5:0] sw_len;
     uart_comm #(.CLK_FREQ(CLK_FREQ), .BAUD_RATE(BAUD_RATE)) U_UART (
         .clk(clk), .rst(rst), .uart_rxd(uart_rxd), .uart_txd(uart_txd),
         .dht_req(1'b0), .dht_msg(240'b0), .dht_len(5'b0), .dht_accept(),
         .sw_req(sw_req), .sw_msg(sw_msg), .sw_len(sw_len), .sw_accept(sw_accept),
-        .rx_busy(rx_busy), .comm(), .comm_valid(), .r_pulse(r_pulse)
+        .rx_busy(rx_busy), .comm(comm), .comm_valid(comm_valid), .r_pulse()
+    );
+    sr04_command_adapter U_COMMAND_ADAPTER (
+        .clk(clk), .rst(rst), .comm(comm), .comm_valid(comm_valid),
+        .r_pulse(r_pulse)
     );
     sr04_stopwatch U_SR04_STOPWATCH (
         .clk(clk), .rst(rst), .r_pulse(r_pulse),

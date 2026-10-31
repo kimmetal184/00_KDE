@@ -1,6 +1,6 @@
 `timescale 1ns / 1ps
 
-module uart_rx_fifo #(
+module fifo #(
     parameter DEPTH = 4,
     A_BIT_WIDTH = $clog2(DEPTH),
     D_BIT_WIDTH = 8
@@ -21,7 +21,7 @@ module uart_rx_fifo #(
     wire [A_BIT_WIDTH-1:0] w_wptr, w_rptr;
 
 
-    uart_fifo_storage #(
+    register_file #(
         .DEPTH(DEPTH),
         .D_BIT_WIDTH(D_BIT_WIDTH)
     ) U_REG_FILE (
@@ -35,7 +35,7 @@ module uart_rx_fifo #(
 
     );
 
-    uart_fifo_control #(
+    control_unit #(
         .A_BIT_WIDTH(A_BIT_WIDTH)
     ) U_CONTROL_UNIT (
 
@@ -52,7 +52,7 @@ module uart_rx_fifo #(
 
 endmodule
 
-module uart_fifo_storage #(
+module register_file #(
     parameter DEPTH       = 4,
               A_BIT_WIDTH = $clog2(DEPTH),
               D_BIT_WIDTH = 8
@@ -92,7 +92,7 @@ module uart_fifo_storage #(
 endmodule
 
 
-module uart_fifo_control #(
+module control_unit #(
     parameter A_BIT_WIDTH = 2
 ) (
 

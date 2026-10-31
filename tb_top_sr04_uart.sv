@@ -29,6 +29,12 @@ module tb_top_sr04_uart;
             uart_rxd=1; #(BIT_NS);
         end
     endtask
+    task send_sw_command;
+        begin
+            send_byte("s"); send_byte("s"); send_byte("_"); send_byte("r");
+            send_byte(8'h0d); send_byte(8'h0a);
+        end
+    endtask
     // Emulated sensor, but real UART RX/TX RTL with real serial bit timing.
     initial begin
         wait(rst == 0);
@@ -75,7 +81,7 @@ module tb_top_sr04_uart;
     initial begin
         #100; @(negedge clk); rst=0;
         repeat(1000) @(negedge clk);
-        send_byte("r"); // No Enter: start must be immediate after byte reception.
+        send_sw_command(); // Original shared UART accepts ss_r CR/LF.
         wait(r_events == 1);
         if (dut.U_SR04_STOPWATCH.uart_run !== 1) begin
             @(negedge clk);
@@ -87,7 +93,7 @@ module tb_top_sr04_uart;
         // Ensure at least one real 10ms stopwatch tick before stopping.
         #5000000;
         if (rx_busy !== 1) $fatal(1,"Expected stop during start message transmission");
-        send_byte("r"); // Stop while real UART is transmitting: result must queue.
+        send_sw_command(); // Same command toggles stop, including while busy.
         send_byte(8'h0d); send_byte(8'h0a);
         wait(bytes_seen == 41);
         if (dut.U_SR04_STOPWATCH.result_msec == 0)
@@ -100,6 +106,11 @@ module tb_top_sr04_uart;
         repeat(1000) @(negedge clk);
         if (r_events != 2 || dht_events != 1 || bytes_seen != 41)
             $fatal(1,"DHT command triggered stopwatch or was lost");
+        // Bare r is NOT published by the original shared UART.
+        send_byte("r"); send_byte(8'h0d); send_byte(8'h0a);
+        repeat(1000) @(negedge clk);
+        if (r_events != 2 || bytes_seen != 41)
+            $fatal(1,"Unexpected bare-r behavior from original UART");
         $display("SERIAL START: %s",start_text);
         $display("SERIAL STOP: %s",stop_text);
         $display("ALL SERIAL UART INTEGRATION TESTS PASSED");
