@@ -1,290 +1,129 @@
-현재 버전: v0.7.0 — 공용 UART 원본과 SR04 명령 어댑터
-변경 이력은 CHANGELOG.md를 확인하세요.
-
 SR04_STOPWATCH 사용 안내
+현재 버전: v0.8.0 — 팀의 단일 공용 UART에 직접 연결
+변경 이력: CHANGELOG.md
+팀 TOP 연결 예시: SR04_TEAM_CONNECTION.md
 
-1. Vivado 파일 등록
+1. 구조
 
-Design Sources에 다음 파일을 추가합니다.
-  - sr04_stopwatch.v: FPGA용·UART용 스톱워치를 분리한 상위 모듈
-  - stopwatch.v: 기존 시간 카운터와 Lap 모듈을 그대로 재사용
-  - sr04.v: 16비트 카운터와 START 수정이 반영된 센서 모듈
-  - sr04_message_formatter.v: 시작·정지 ASCII 메시지 생성
-  - sr04_uart_request.v: UART 송신 요청과 4개 메시지 대기열
+공용 UART는 팀 전체 TOP에 하나만 둡니다.
+SR04_STOPWATCH에는 UART RX/TX가 들어 있지 않습니다.
+별도 top_sr04_uart.v와 sr04_command_adapter.v는 더 이상 사용하지 않습니다.
+팀 TOP은 담당자가 기존 파일에 우리 모듈의 인스턴스와 배선만 추가합니다.
 
-단독 검증 시 Design Top을 sr04_stopwatch로 지정합니다.
+2. 우리 모듈에 필요한 Design Sources
 
-Simulation Sources에 tb_sr04_stopwatch.v를 추가하고,
-Simulation Top을 tb_sr04_stopwatch로 지정합니다.
-Run Behavioral Simulation을 실행한 뒤 Tcl Console에 run all을 입력합니다.
+  sr04_stopwatch.v
+  stopwatch.v
+  sr04.v
+  sr04_message_formatter.v
+  sr04_uart_request.v
 
-정상 완료 시 다음 문구가 출력됩니다.
-  ALL R TOGGLE TESTS PASSED
-  ALL CONTROL TESTS PASSED
-  ALL SNAPSHOT TESTS PASSED
-  ALL INTEGRATED MESSAGE TESTS PASSED
-  ALL INTEGRATED UART TESTS PASSED
+우리 블록을 단독으로 볼 때 Design Top: sr04_stopwatch
+최종 팀 통합에서는 기존 팀 전체 TOP을 Design Top으로 사용합니다.
+공용 uart_comm.v, uart_rx.v, uart_tx.v, fifo.v는 팀 원본 그대로 사용합니다.
+같은 파일이나 같은 이름의 모듈을 중복으로 추가하지 마세요.
+원본 FIFO의 control_unit 등과 다른 동명 모듈이 충돌하면 팀 담당자와 조율해야 합니다.
 
-테스트벤치는 실행 시간을 줄이기 위해 스톱워치의 Tick 주기만 단축합니다.
-실제 설계의 100MHz 클럭 기준 시간 설정은 변경하지 않습니다.
+3. 공용 UART 연결
 
-2. 입력과 출력 변경
+입력:
+  comm[47:0], comm_valid: 공용 명령과 새 명령 알림
+  rx_busy: 공용 UART가 메시지 송신 중이면 1
+  sw_accept: 우리 전송 요청을 수락했다는 1클럭 펄스
+출력:
+  sw_req: 1클럭 송신 요청
+  sw_msg[239:0]: ASCII 메시지
+  sw_len[5:0]: CR/LF 포함 전송 바이트 수
 
-v0.5.0은 UART 명령 입력으로 r_pulse 하나를 사용합니다.
-  - r_pulse: UART에서 ASCII r(0x72)을 수신했을 때 발생하는 1클럭 펄스
-  - 정지 상태에서 r: 초기화 후 시작
-  - 실행 상태에서 r: 정지 및 결과 저장
-  - 다음 r: 다시 초기화 후 새 측정 시작
-외부 uart_start, uart_stop 포트는 제거되었습니다.
-다음 버튼 입력은 FPGA 스톱워치만 제어합니다.
-  - btn_run_stop: FPGA 스톱워치 실행/정지
-  - btn_clear: FPGA 시간과 Lap 초기화
-  - btn_mode: FPGA UP/DOWN 전환
-  - btn_lap: FPGA Lap 표시 전환
+r_pulse 외부 입력은 제거했습니다. SR04 내부에서
+comm_valid && (comm == {"ss_r", 8'h0d, 8'h0a})를 확인해 토글합니다.
+공용 UART의 기존 r_pulse 출력은 이 모듈에 연결하지 않습니다.
 
-버튼 입력은 디바운스가 완료된 1클럭 펄스여야 합니다.
-상위 모듈에서도 변경된 포트 이름에 맞게 연결해야 합니다.
-FPGA Clear는 실행/정지 및 UP/DOWN 상태를 유지하며 시간과 Lap만 초기화합니다.
-r_pulse는 한 글자당 정확히 1클럭이어야 합니다. 여러 클럭 유지하면 반복 토글됩니다.
+PC에서 보내는 명령:
+  첫 ss_r + CR/LF: 초기화 후 시간·거리 측정 시작
+  다음 ss_r + CR/LF: 정지, 시간·마지막 완료 거리 저장
+  다음 ss_r + CR/LF: 초기화 후 다시 시작
+원본 공용 UART는 단일 r을 외부 명령으로 내보내지 않습니다.
+단일 r을 쓰려면 공용 담당자가 해당 명령이나 수신 바이트 출력을 지원해야 합니다.
+다른 모듈의 dw_r + CR/LF는 SR04가 무시합니다.
 
-현재 UART 측정값은 uart_msec, uart_sec, uart_min, uart_hour,
-uart_distance 출력으로 확인할 수 있습니다.
-FND용 data는 임시로 네 자리 packed BCD 형식을 사용합니다.
-예를 들어 숫자 1234는 16'h1234입니다. 팀 FND 입력 규격과 확인해야 합니다.
+4. FPGA 스톱워치와 표시
 
-3. 정지 결과 저장
+btn_run_stop, btn_clear, btn_mode, btn_lap은 디바운스된 1클럭 펄스를 받습니다.
+FPGA와 UART의 시간 카운터는 독립적입니다.
+FPGA Clear는 시간과 Lap을 초기화하되 실행/정지와 UP/DOWN 상태는 유지합니다.
+Lap은 표시만 고정하고 내부 시간은 계속 카운트합니다.
+data[15:0]는 FND용 임시 네 자리 packed BCD입니다.
+팀 FND 입력 규격을 확인하고 팀 TOP의 모드 선택 MUX에 연결합니다.
+SR04 모드에서 거리, 그 외 이 블록의 표시에서는 FPGA 시간을 선택합니다.
+시간 표시는 display_mode로 초:1/100초 또는 시:분을 선택합니다.
 
-UART 실행 중 r_pulse를 받는 클럭에서 다음 결과를 별도로 저장합니다.
-  - result_msec: 1/100초 값(10ms 단위, 0~99)
-  - result_sec: 초
-  - result_min: 분
-  - result_hour: 시
-  - result_distance: 거리(cm)
+5. 결과와 메시지
 
-result_valid는 결과가 저장됐음을 알리는 1클럭 펄스입니다.
-시간은 정지를 수락하는 클럭에서 보이는 값을 저장합니다.
-그 클럭에 distance_valid도 들어오면 해당 완료 거리를 저장합니다.
-
-새 측정을 시작하거나 FPGA 버튼을 조작해도 저장된 결과는 유지됩니다.
-다음 실행 중 정지 명령을 받으면 새 결과로 갱신됩니다.
-정지 상태에서 r을 받으면 새 측정을 시작하며, 이때 정지 결과 알림은 발생하지 않습니다.
-전체 리셋은 저장된 결과도 초기화합니다.
-
-현재 저장 공간은 결과 한 건입니다. 여러 결과를 쌓는 대기열은 아닙니다.
-UART 전송 대기 중 다음 결과가 발생하는 경우의 보관·처리 규칙은
-v0.4.0의 메시지 대기열이 담당합니다(아래 7절 참조).
-
-4. 검증한 내용
-
-Icarus Verilog 12.0에서 선택한 최상위 모듈의 컴파일과 다음 테스트를 통과했습니다.
-  - UART만 시작했을 때 FPGA 시간이 정지 상태로 유지됨
-  - FPGA와 UART 스톱워치가 독립적으로 동시에 동작함
-  - UART 정지와 완료 알림 펄스
-  - FPGA Lap은 표시만 고정하고 내부 카운트는 계속 동작함
-  - FPGA Clear가 UART 시간에 영향을 주지 않음
-  - UART 재시작 시 시간 초기화
-  - 센서 완료와 정지가 같은 클럭일 때 거리 저장
-  - 재시작 후 이전 결과 유지
-  - 다음 정지 시 결과 갱신
-  - v0.2~v0.4에서는 중복 정지 무시를 검증했고, v0.5부터는 r 토글을 검증
-  - 리셋 시 저장 결과 초기화
-
-사용자 Vivado에서도 이전 제어 분리 테스트의 통과를 확인했습니다.
-결과 저장 기능을 추가한 최신 버전의 Vivado 검증은 별도로 진행해야 합니다.
-Vivado 합성, 타이밍 분석, 실제 센서·보드 동작은 여기서 검증하지 않았습니다.
-
-5. 다음 작업과 남은 사항
-
-  - UART가 정지한 상태에서도 SR04 선택 시 거리만 측정·표시하는 기능
-  - 센서 TRIG가 최소 10us 이상 유지되도록 보완
-  - 빠른 UART 재시작 시 이전 측정의 완료 결과가 섞이지 않도록 처리
-  - 팀 FND 및 UART 인터페이스와 최종 연결
-
-stopwatch.v에는 예전 단독 상위 모듈 stopwatch도 들어 있습니다.
-그 모듈은 별도 btn_debounce, control_unit, fnd_controller 파일이 필요합니다.
-sr04_stopwatch를 최상위로 사용하는 이번 테스트에서는 해당 모듈들을 사용하지 않습니다.
-예전 stopwatch 자체를 최상위로 사용하려면 해당 파일들도 추가해야 합니다.
-
-6. v0.3.0 ASCII 메시지 생성
-
-추가 파일:
-  - sr04_message_formatter.v: Design Sources에 반드시 추가
-  - tb_sr04_message_formatter.v: 별도 메시지 테스트용 Simulation Sources
-
-출력 포트:
-  - message[239:0]: 최대 30바이트 ASCII 메시지
-  - message_len[5:0]: 실제 메시지 바이트 수(CR/LF 포함)
-  - message_valid: 메시지가 새로 만들어졌다는 1클럭 펄스
-
-첫 문자는 message[239:232]에 들어갑니다.
-그다음 문자는 message[231:224]에 들어갑니다.
-사용하지 않는 뒤쪽 바이트는 0입니다. 이 0은 전송 길이에 포함하지 않습니다.
+정지 때 result_msec/sec/min/hour/distance를 저장하고 result_valid를 1클럭 출력합니다.
+result_msec는 10ms 단위(0~99)입니다.
+정지를 수락하는 클럭에서 보이는 시간을 저장합니다.
+같은 클럭에 완료 거리가 들어오면 해당 거리를 포함합니다.
+재시작/FPGA 조작에도 저장 결과는 유지되며 다음 정지나 리셋에서 갱신됩니다.
 
 시작 메시지: start_stopwatch\r\n (17바이트)
 정지 메시지: stop_DDDcm_hh:mm:ss.cc\r\n (24바이트)
-예: stop_123cm_00:01:23.45\r\n
-거리는 세 자리로 고정합니다. 9cm는 009cm로 표시합니다.
-시간의 각 항목도 두 자리입니다. cc는 10ms 단위입니다.
-\r과 \n은 문자 두 개씩이 아니라 각각 0x0D, 0x0A 바이트입니다.
-센서 실패를 나타내는 기존 값 400도 현재는 400cm로 표시됩니다.
+예: stop_099cm_00:00:00.01\r\n
+첫 문자는 sw_msg[239:232], 다음 문자는 [231:224]입니다.
+\r\n은 실제 CR(0x0D), LF(0x0A)이며 길이에 포함합니다.
+사용하지 않는 뒤쪽 0 바이트는 전송하지 않습니다.
+센서 실패 표시값 400도 현재는 400cm로 출력합니다.
+message/message_len/message_valid는 중간 확인용이며 UART에는 sw_*를 연결합니다.
 
-시작 명령을 수락한 다음 클럭에 시작 메시지가 완성됩니다.
-정지 결과가 저장되고 result_valid가 발생한 다음 클럭에 정지 메시지가 완성됩니다.
-메시지 출력은 다음 메시지 또는 리셋까지 유지됩니다.
-message_valid는 메시지 생성 알림이며 sw_req와 다릅니다.
-v0.4.0부터는 생성된 메시지를 다음 클럭에 대기열로 복사합니다.
-실제 UART에는 아래 7절의 sw_req, sw_msg, sw_len을 연결합니다.
+메시지 대기열은 최대 4개를 순서대로 보관합니다.
+rx_busy=0에서 요청하고, UART가 요청을 받은 상승 엣지에서 내용을 복사한 뒤
+sw_accept를 등록 출력하면 다음 엣지에서 수락을 확인합니다.
+수락 전까지 내용과 길이를 유지하며, 미수락이면 재시도합니다.
+수락과 동시에 UART가 자기 복사본으로 송신해야 합니다.
+가득 차면 기존 메시지를 보존하고 새 메시지를 버립니다.
+tx_queue_full은 포화 상태, tx_overflow는 폐기 발생 이력을 리셋까지 표시합니다.
+수락과 새 메시지 입력이 같은 클럭이면 빈자리를 즉시 재사용합니다.
 
-메시지만 테스트하려면 Simulation Top을 tb_sr04_message_formatter로 바꾸고
+6. 단독·통합 시뮬레이션
+
+Simulation Sources와 Top:
+  tb_sr04_stopwatch.v -> tb_sr04_stopwatch
+    제어·결과 저장·메시지·가짜 UART 연결 테스트
+  tb_sr04_message_formatter.v -> tb_sr04_message_formatter
+    ASCII 단독 테스트
+  tb_sr04_uart_request.v -> tb_sr04_uart_request
+    busy·재시도·FIFO·포화·리셋 단독 테스트
+
+실제 UART RTL과의 연결 검증:
+  Simulation Sources: tb_sr04_shared_uart.sv
+  Simulation Top: tb_sr04_shared_uart
+  공용 원본 UART 네 파일도 프로젝트에 등록되어 있어야 합니다.
+  테스트벤치 안에 UART와 SR04를 나란히 두고 연결합니다.
+  이 테스트벤치는 팀 설계 TOP이나 보드 회로로 합성하는 파일이 아닙니다.
+  .sv는 문자열 비교용 SystemVerilog이며 Design Sources는 Verilog입니다.
+
 Run Behavioral Simulation 후 run all을 입력합니다.
-정상 완료 문구: ALL ASCII TESTS PASSED
-통합 테스트 시에는 Simulation Top을 tb_sr04_stopwatch로 지정합니다.
+테스트 완료 후 $finish가 나오면 run all을 다시 입력하지 마세요.
+직렬 테스트는 100MHz·9600bps로 수십 ms를 시뮬레이션해 기존보다 오래 걸립니다.
+직렬 테스트 성공 문구: ALL SERIAL UART INTEGRATION TESTS PASSED
+기존 단독 테스트 성공 문구는 유지합니다.
 
-Icarus Verilog 12.0에서 메시지 단독 테스트와 통합 테스트를 모두 통과했습니다.
-v0.3.0의 ASCII 단독·통합 테스트는 사용자가 Vivado에서도 통과를 확인했습니다.
+7. 검증 범위와 남은 작업
 
-7. v0.4.0 UART 요청·수락
+이전 버전 v0.4까지는 사용자 Vivado 단독·통합 테스트 통과를 확인했습니다.
+이후 버전은 변경 이력에 해당 버전의 검증 상태를 구분해 기록합니다.
+현재 버전은 Icarus에서 검사하며 Vivado v0.8.0은 사용자 확인이 필요합니다.
+실제 UART RTL의 RX/TX 직렬 신호를 테스트벤치가 주고받습니다.
+센서는 가상 ECHO 펄스로 대체합니다. 실제 PC/보드와 전체 팀 TOP은 미검증입니다.
 
-Design Sources에 sr04_uart_request.v를 추가합니다.
-Simulation Sources에 tb_sr04_uart_request.v를 추가하면 요청 처리만 테스트할 수 있습니다.
-기존 sr04_stopwatch.v와 tb_sr04_stopwatch.v도 최신 버전으로 교체합니다.
+남은 작업:
+  - 실제 팀 TOP의 버튼/명령/송신 배선 연결 및 Watch/DHT/FND 전체 통합
+  - 팀 FND 데이터 형식과 공유 UART의 최종 인터페이스 확인
+  - 실제 보드와 PC 송수신 검증, XDC 핀·100MHz 클럭 제약
+  - 외부 비동기 입력의 동기화 및 센서 전압 연결 확인
+  - 센서 TRIG 최소 10us 보장
+  - 빠른 재시작 때 이전 센서 결과가 섞이지 않도록 세션 처리
+  - UART 정지 중에도 SR04 선택 시 거리 표시가 필요하면 측정 제어 추가
 
-UART와 연결할 포트:
-  - rx_busy (입력): UART가 전송 중이면 1
-  - sw_accept (입력): UART가 이 모듈의 요청을 수락했음을 알리는 1클럭 펄스
-  - sw_req (출력): UART에 보내는 1클럭 요청
-  - sw_msg[239:0] (출력): 요청할 메시지. 첫 문자는 [239:232]
-  - sw_len[5:0] (출력): 전송할 바이트 수. CR/LF 포함
-  - tx_queue_full (출력): 메시지 대기열이 가득 차면 1
-  - tx_overflow (출력): 공간 부족으로 메시지를 버린 적이 있으면 리셋까지 1
-
-연결 순서와 타이밍:
-  1. 메시지가 완성되면 대기열에 내용과 길이를 복사합니다.
-  2. rx_busy=0이고 보관 메시지가 있으면 sw_req를 1클럭 올립니다.
-  3. UART는 sw_req가 1인 상승 엣지에서 메시지와 길이를 내부에 복사합니다.
-  4. 그 엣지 직후 UART가 sw_accept=1, rx_busy=1을 등록 출력합니다.
-  5. 이 모듈은 다음 상승 엣지에서 sw_accept를 확인하고 대기열의 해당 메시지를 제거합니다.
-  6. sw_accept가 없으면 내용을 보존하고, UART가 비었을 때 재요청합니다.
-
-sw_msg와 sw_len은 요청 전부터 수락 확인까지 유지됩니다.
-수락 후에는 UART가 내부 복사본으로 송신해야 합니다.
-UART가 전송을 끝내 rx_busy가 0으로 돌아오면 다음 메시지를 요청합니다.
-sw_accept는 이 모듈에 대한 수락일 때만 1이어야 하며,
-요청을 받은 엣지에서 등록 출력하는 1클럭 펄스여야 합니다.
-임의로 지연된 수락이나 조합회로 형태의 수락은 이번 계약의 대상이 아닙니다.
-
-대기열은 메시지 4개를 보관합니다. 시작과 정지 메시지 모두 한 칸씩 사용합니다.
-가득 찬 상태에서 새 메시지가 들어오면 기존 4개를 유지하고 새 메시지를 버립니다.
-이 경우 tx_overflow가 1로 남습니다. 전체 리셋으로 초기화합니다.
-같은 클럭에 수락으로 한 칸이 비면 새 메시지를 보관할 수 있습니다.
-따라서 무제한 입력이나 영구 busy 상태에서 모든 결과의 전송을 보장하지는 않습니다.
-
-단독 테스트: Simulation Top = tb_sr04_uart_request
-  예상 문구: ALL UART REQUEST TESTS PASSED
-전체 테스트: Simulation Top = tb_sr04_stopwatch
-  기존 세 가지 통과 문구와 ALL INTEGRATED UART TESTS PASSED가 출력되어야 합니다.
-
-Icarus Verilog 12.0에서 단독·통합·기존 ASCII 테스트가 모두 통과했습니다.
-통합 테스트는 UART 대신 요청을 거부하거나 수락하는 가짜 UART를 사용합니다.
-실제 비트 송신, PC 수신, 팀 UART와의 연결은 아직 검증하지 않았습니다.
-v0.4.0은 사용자가 Vivado에서도 요청 단독·통합 테스트 통과를 확인했습니다.
-
-8. v0.5.0 r 토글 방식
-
-바뀐 Verilog 파일: sr04_stopwatch.v, tb_sr04_stopwatch.v
-추가로 필요한 소스 파일은 없습니다.
-Design Top은 sr04_stopwatch, Simulation Top은 tb_sr04_stopwatch입니다.
-
-PC 입력 r -> 시작, start_stopwatch 메시지 생성
-PC 입력 r -> 정지, stop_DDDcm_hh:mm:ss.cc 메시지 생성
-PC 입력 r -> 초기화 후 다시 시작
-PC 입력 r -> 다시 정지 및 새 결과 생성
-
-PC의 r을 직접 이 모듈이 읽는 것은 아닙니다.
-실제 UART의 바이트 수신 완료 신호와 수신 데이터로 외부 디코더가
-r_pulse를 만들어 연결해야 합니다. 디코더 예시는 다음과 같습니다.
-
-  wire r_pulse = rx_valid && (rx_data == 8'h72);
-
-위 예시는 rx_valid가 clk 도메인의 1클럭 펄스일 때만 사용합니다.
-실제 UART 포트 이름과 수신 완료 신호 형식에 맞게 팀 담당자가 연결해야 합니다.
-이 경우 CR/LF는 일치하지 않으므로 토글하지 않습니다.
-기존 sr_r/sr_s 문자열 디코더 출력과 중복 연결하지 마세요.
-팀 UART의 실제 r 한 글자 수신·디코더 연결은 아직 검증하지 않았습니다.
-
-출력 문구 자체는 유지합니다. 시작 문구는 stopwatch start가 아니라
-기존 규격인 start_stopwatch입니다.
-UART가 바쁘면 대기열에서 기다리므로 입력 즉시 PC에 표시된다고 보장하지 않습니다.
-
-통합 테스트 통과 문구에 ALL R TOGGLE TESTS PASSED가 추가됩니다.
-Icarus Verilog 12.0에서 통합 테스트 통과. Vivado v0.5.0은 별도 확인이 필요합니다.
-
-9. v0.7.0 공용 UART 원본과 연결
-
-사용자 요청: 공용 UART 소스는 팀원이 제공한 원본 그대로 사용합니다.
-  - uart_comm.v, uart_rx.v, uart_tx.v, fifo.v 모두 업로드 원본과 바이트 단위 동일
-  - 공용 UART 내부의 명령 처리, FIFO 이름, 송신 동작을 변경하지 않음
-
-우리 쪽 추가 모듈:
-  - sr04_command_adapter.v: comm과 comm_valid를 받아 우리 명령만 선택
-  - top_sr04_uart.v: 공용 UART, 우리 어댑터, SR04_STOPWATCH 연결
-
-이번 연결 테스트의 Design Sources:
-  sr04_stopwatch.v, stopwatch.v, sr04.v,
-  sr04_message_formatter.v, sr04_uart_request.v,
-  sr04_command_adapter.v, top_sr04_uart.v,
-  uart_comm.v, uart_rx.v, uart_tx.v, fifo.v
-
-Design Top: top_sr04_uart
-Simulation Sources: tb_top_sr04_uart.sv
-Simulation Top: tb_top_sr04_uart
-.sv 파일은 문자열 비교를 위해 SystemVerilog를 사용합니다.
-설계 소스는 Verilog입니다.
-실행: Run Behavioral Simulation 후 run all
-정상 완료: ALL SERIAL UART INTEGRATION TESTS PASSED
-시뮬레이션 시간은 수십 ms로, 기존 단독 테스트보다 오래 걸립니다.
-통과 후 $finish가 나왔으면 run all을 다시 입력하지 마세요.
-
-PC에서 보내는 명령(현재 연결 기준):
-  ss_r\r\n -> 시작, start_stopwatch 메시지
-  ss_r\r\n -> 정지, 시간·거리 결과 메시지
-  ss_r\r\n -> 초기화 후 새 측정 시작
-\r\n은 실제 CR(0x0D), LF(0x0A) 바이트입니다.
-시리얼 터미널에서는 ss_r을 입력하고 CR+LF가 전송되도록 설정합니다.
-
-중요: 원본 공용 UART는 단일 r을 유효 명령으로 내보내지 않습니다.
-따라서 공용 소스 변경 없이, 현재 노출된 comm/comm_valid만 받아서
-물리적인 PC 입력 r 한 글자를 인식하도록 만들 수는 없습니다.
-단일 r이 꼭 필요하면 공용 담당자가 바이트 수신 출력이나 해당 명령을 지원해야 합니다.
-SR04 내부 r_pulse는 같은 펄스로 시작·정지가 바뀌는 v0.5 방식 그대로입니다.
-
-명령 연결:
-  공용 UART comm, comm_valid -> SR04 어댑터 -> r_pulse -> SR04_STOPWATCH
-  공용 UART의 기존 직접 r_pulse 출력은 이 TOP에서는 연결하지 않음
-  dw_r CR/LF는 DHT 명령으로 유지되며 SR04 어댑터는 무시함
-
-송신 연결(변경 없음):
-  UART rx_busy, sw_accept -> SR04
-  SR04 sw_req, sw_msg, sw_len -> UART
-
-원본 FIFO는 fifo, register_file, control_unit이라는 모듈 이름을 사용합니다.
-프로젝트 안에 이 이름의 다른 모듈이 있으면 중복 정의를 피해야 합니다.
-이번 변경에서는 공용 원본을 유지하므로 FIFO 내부 이름을 변경하지 않습니다.
-최종 팀 프로젝트에서 이름 충돌이 발생하면 담당자와 파일 구성을 조율하세요.
-이전 v0.6.0의 수정된 UART/FIFO 대신 이번 원본 파일을 사용해야 합니다.
-잘못 업로드됐던 FIFO 내용의 uart_rx/uart_tx 파일은 제외하세요.
-
-TOP은 SR04 연결 검증용이며 DHT 송신 요청은 0으로 묶었습니다.
-공용 FND와 Watch/DHT 전체 기능은 아직 연결하지 않았습니다.
-버튼은 디바운스된 펄스, data는 임시 packed BCD를 사용합니다.
-시스템 클럭은 기존 센서·스톱워치 기준 100MHz를 사용합니다.
-
-검증 범위:
-  - Icarus Verilog 12.0 직렬 통합 테스트 통과(약 58.3ms 시뮬레이션)
-  - 직렬 RX/TX RTL과 센서 ECHO 에뮬레이션을 사용한 연결 테스트
-  - PC 입력 명령과 TX 출력의 전체 ASCII 바이트 및 8N1 비트 샘플링 확인
-  - 보드/PC 실물, 전체 팀 시스템, Vivado v0.7.0 실행은 별도 확인 필요
-기존 센서 TRIG 최소 폭, 외부 신호 동기화 및 XDC/보드 연결 보완 사항은 유지됩니다.
-
-앞의 8절까지는 각 버전의 내부 기능 설명입니다.
-현재 PC 명령과 최상위 연결 규칙은 이 9절을 우선 참고하세요.
+카운터와 Tick 설정은 100MHz 기준입니다.
+이 안내는 보드 검증 완료를 의미하지 않습니다.

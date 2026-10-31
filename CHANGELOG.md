@@ -1,6 +1,19 @@
 # 변경 이력
 
-현재 버전: **v0.7.0**
+현재 버전: **v0.8.0**
+
+## v0.8.0 — 팀의 단일 공용 UART에 직접 연결
+
+- `sr04_stopwatch.v`: 명령 입력을 r_pulse에서 comm[47:0]/comm_valid로 교체. 자기 명령 ss_r CR/LF만 선택하여 내부 토글.
+- 팀 공용 UART는 팀 TOP에 한 번만 배치. SR04 내부에 UART RX/TX를 넣지 않음.
+- 별도 설계 TOP top_sr04_uart.v와 외부 어댑터 sr04_command_adapter.v 제거.
+- 기존 tb_top_sr04_uart.sv를 tb_sr04_shared_uart.sv로 변경. UART와 SR04를 테스트벤치 안에서 서로 연결하여 검증.
+- `tb_sr04_stopwatch.v`: 공용 명령 버스 형태로 입력 갱신.
+- 새 안내 SR04_TEAM_CONNECTION.md: 기존 팀 TOP에서 사용할 신호 연결표와 SR04 인스턴스 예시.
+- 공용 UART 네 파일은 업로드 원본 그대로 유지.
+- 명령은 원본 UART 규격인 ss_r CR/LF이며 단일 r 입력은 지원하지 않음.
+- 검증: Icarus Verilog 12.0에서 공용 원본 UART와의 직렬 연결 테스트 통과(58.3ms), 기존 제어·메시지·요청 테스트도 회귀 통과. 공용 네 파일의 원본 동일성 확인.
+- 실제 팀 TOP/보드 연결 및 Vivado v0.8.0 검증은 미확인.
 
 ## v0.7.0 — 공용 UART 원본 유지, SR04 쪽에서 명령 연결
 

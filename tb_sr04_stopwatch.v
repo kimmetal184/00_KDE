@@ -32,7 +32,7 @@ module tb_sr04_stopwatch;
     sr04_stopwatch dut (
         .clk(clk), .rst(rst), .btn_run_stop(btn_run_stop),
         .btn_clear(btn_clear), .btn_mode(btn_mode), .btn_lap(btn_lap),
-        .r_pulse(r_pulse),
+        .comm({"ss_r",8'h0d,8'h0a}), .comm_valid(r_pulse),
         .sw_mode(sw_mode), .display_mode(display_mode), .echo(echo),
         .trig(trig), .data(data), .result_valid(result_valid),
         .uart_msec(uart_msec), .uart_sec(uart_sec),

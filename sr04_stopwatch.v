@@ -8,9 +8,9 @@ module sr04_stopwatch (
     input btn_clear,
     input btn_mode,
     input btn_lap,
-    // One clock per received ASCII 'r' (0x72), produced by UART decoder.
-    // First r starts; next r stops; the sequence repeats.
-    input r_pulse,
+    // Broadcast command bus from the single shared UART in the team TOP.
+    input [47:0] comm,
+    input comm_valid,
     input [1:0] sw_mode,
     input display_mode,
     input echo,
@@ -40,6 +40,8 @@ module sr04_stopwatch (
     output tx_queue_full,
     output tx_overflow
 );
+    localparam [47:0] CMD_SW = {"ss_r",8'h0d,8'h0a};
+    wire r_pulse = comm_valid && (comm == CMD_SW);
     reg fpga_run, fpga_mode;
     reg uart_run;
     reg start_valid;
