@@ -1,43 +1,97 @@
-SR04_STOPWATCH control separation
+SR04_STOPWATCH 사용 안내
 
-Design Sources:
-  sr04_stopwatch.v (replaced wrapper)
-  stopwatch.v (unchanged upload)
-  sr04.v (unchanged upload: 16-bit counter and corrected START)
-Set design top to sr04_stopwatch for standalone validation.
-Simulation Sources:
-  tb_sr04_stopwatch.v (set simulation top to tb_sr04_stopwatch)
-Run behavioral simulation, then run all.
-Expected: ALL CONTROL TESTS PASSED.
-Testbench accelerates stopwatch tick generators only.
+1. Vivado 파일 등록
 
-Ports changed: remove r_pulse; add uart_start, uart_stop,
-btn_run_stop, btn_clear, btn_mode, btn_lap.
-Button inputs must be debounced one-clock pulses.
-UART time and distance output ports were added.
-FND data is provisionally packed BCD; confirm with team.
-Clear preserves FPGA run/direction and clears count and lap.
+Design Sources에 다음 파일을 추가합니다.
+  - sr04_stopwatch.v: FPGA용·UART용 스톱워치를 분리한 상위 모듈
+  - stopwatch.v: 기존 시간 카운터와 Lap 모듈을 그대로 재사용
+  - sr04.v: 16비트 카운터와 START 수정이 반영된 센서 모듈
 
-Validated with Icarus Verilog 12.0:
-  selected-top compile and control separation simulation.
-  UART-only count; simultaneous independent count; UART stop/result pulse;
-  FPGA lap display; FPGA clear isolation; UART restart.
-Not validated here: Vivado synthesis, timing, hardware sensor behavior.
-Not implemented: UART ASCII message creation and req/accept handshake,
-sensor-only FND measurement when UART is idle.
-Existing sensor behavior retained: TRIG minimum 10us is not yet guaranteed;
-in-flight measurement across rapid UART restart needs session handling.
-stopwatch.v includes a legacy standalone stopwatch top referencing external
-btn_debounce/control_unit/fnd_controller modules. These are not needed when
-sr04_stopwatch is selected as top; required if using the legacy top itself.
+단독 검증 시 Design Top을 sr04_stopwatch로 지정합니다.
 
-Snapshot update:
-  result_msec/sec/min/hour/distance capture the visible values at the clock
-  accepting uart_stop while running. result_valid pulses with the saved data.
-  A distance completion present at that same edge is included.
-  Restart/FPGA buttons do not clear the snapshot; next accepted stop replaces it.
-  Reset clears the snapshot. Idle stop emits no result.
-  This is one result slot, not a queue: UART pending-message ownership and
-  overflow policy will be added with req/accept handling.
-  Snapshot tests: simultaneous sensor completion + stop, retention on restart,
-  next-stop replacement, idle-stop rejection, reset. All passed in Icarus.
+Simulation Sources에 tb_sr04_stopwatch.v를 추가하고,
+Simulation Top을 tb_sr04_stopwatch로 지정합니다.
+Run Behavioral Simulation을 실행한 뒤 Tcl Console에 run all을 입력합니다.
+
+정상 완료 시 다음 문구가 출력됩니다.
+  ALL CONTROL TESTS PASSED
+  ALL SNAPSHOT TESTS PASSED
+
+테스트벤치는 실행 시간을 줄이기 위해 스톱워치의 Tick 주기만 단축합니다.
+실제 설계의 100MHz 클럭 기준 시간 설정은 변경하지 않습니다.
+
+2. 입력과 출력 변경
+
+기존 r_pulse 입력을 제거하고 다음 입력을 추가했습니다.
+  - uart_start: UART 측정 시간을 초기화하고 시작하는 1클럭 펄스
+  - uart_stop: UART 측정을 정지하는 1클럭 펄스
+  - btn_run_stop: FPGA 스톱워치 실행/정지
+  - btn_clear: FPGA 시간과 Lap 초기화
+  - btn_mode: FPGA UP/DOWN 전환
+  - btn_lap: FPGA Lap 표시 전환
+
+버튼 입력은 디바운스가 완료된 1클럭 펄스여야 합니다.
+상위 모듈에서도 변경된 포트 이름에 맞게 연결해야 합니다.
+FPGA Clear는 실행/정지 및 UP/DOWN 상태를 유지하며 시간과 Lap만 초기화합니다.
+UART의 시작과 정지가 동시에 입력되면 정지가 우선입니다.
+
+현재 UART 측정값은 uart_msec, uart_sec, uart_min, uart_hour,
+uart_distance 출력으로 확인할 수 있습니다.
+FND용 data는 임시로 네 자리 packed BCD 형식을 사용합니다.
+예를 들어 숫자 1234는 16'h1234입니다. 팀 FND 입력 규격과 확인해야 합니다.
+
+3. 정지 결과 저장
+
+UART 실행 중 uart_stop을 받는 클럭에서 다음 결과를 별도로 저장합니다.
+  - result_msec: 1/100초 값(10ms 단위, 0~99)
+  - result_sec: 초
+  - result_min: 분
+  - result_hour: 시
+  - result_distance: 거리(cm)
+
+result_valid는 결과가 저장됐음을 알리는 1클럭 펄스입니다.
+시간은 정지를 수락하는 클럭에서 보이는 값을 저장합니다.
+그 클럭에 distance_valid도 들어오면 해당 완료 거리를 저장합니다.
+
+새 측정을 시작하거나 FPGA 버튼을 조작해도 저장된 결과는 유지됩니다.
+다음 실행 중 정지 명령을 받으면 새 결과로 갱신됩니다.
+이미 정지한 상태에서 정지 명령을 다시 받아도 새 결과 알림은 발생하지 않습니다.
+전체 리셋은 저장된 결과도 초기화합니다.
+
+현재 저장 공간은 결과 한 건입니다. 여러 결과를 쌓는 대기열은 아닙니다.
+UART 전송 대기 중 다음 결과가 발생하는 경우의 보관·처리 규칙은
+향후 req/accept 연결 단계에서 추가해야 합니다.
+
+4. 검증한 내용
+
+Icarus Verilog 12.0에서 선택한 최상위 모듈의 컴파일과 다음 테스트를 통과했습니다.
+  - UART만 시작했을 때 FPGA 시간이 정지 상태로 유지됨
+  - FPGA와 UART 스톱워치가 독립적으로 동시에 동작함
+  - UART 정지와 완료 알림 펄스
+  - FPGA Lap은 표시만 고정하고 내부 카운트는 계속 동작함
+  - FPGA Clear가 UART 시간에 영향을 주지 않음
+  - UART 재시작 시 시간 초기화
+  - 센서 완료와 정지가 같은 클럭일 때 거리 저장
+  - 재시작 후 이전 결과 유지
+  - 다음 정지 시 결과 갱신
+  - 정지 상태의 중복 정지 명령 무시
+  - 리셋 시 저장 결과 초기화
+
+사용자 Vivado에서도 이전 제어 분리 테스트의 통과를 확인했습니다.
+결과 저장 기능을 추가한 최신 버전의 Vivado 검증은 별도로 진행해야 합니다.
+Vivado 합성, 타이밍 분석, 실제 센서·보드 동작은 여기서 검증하지 않았습니다.
+
+5. 다음 작업과 남은 사항
+
+  - 저장된 결과를 UART용 ASCII 메시지로 변환
+  - sw_req, sw_accept, rx_busy를 이용한 전송 요청 처리
+  - UART가 바쁠 때 메시지 보관 및 다음 결과 처리 규칙 구현
+  - UART가 정지한 상태에서도 SR04 선택 시 거리만 측정·표시하는 기능
+  - 센서 TRIG가 최소 10us 이상 유지되도록 보완
+  - 빠른 UART 재시작 시 이전 측정의 완료 결과가 섞이지 않도록 처리
+  - 팀 FND 및 UART 인터페이스와 최종 연결
+
+stopwatch.v에는 예전 단독 상위 모듈 stopwatch도 들어 있습니다.
+그 모듈은 별도 btn_debounce, control_unit, fnd_controller 파일이 필요합니다.
+sr04_stopwatch를 최상위로 사용하는 이번 테스트에서는 해당 모듈들을 사용하지 않습니다.
+예전 stopwatch 자체를 최상위로 사용하려면 해당 파일들도 추가해야 합니다.
